@@ -25,6 +25,9 @@
 #define TEXTNW(X,N)           (drw_font_getexts_width(drw->fonts[0], (X), (N)))
 #define TEXTW(X)              (drw_text(drw, 0, 0, 0, 0, (X), 0) + drw->fonts[0]->h)
 
+static void match(void);
+static void (*mymatch)(void) = match;
+
 /* enums */
 enum { SchemeNorm, SchemeSel, SchemeOut, SchemeLast }; /* color schemes */
 
@@ -32,6 +35,7 @@ struct item {
 	char *text;
 	struct item *left, *right;
 	int out;
+	int distance;
 };
 
 static char text[BUFSIZ] = "";
@@ -253,6 +257,86 @@ match(void)
 	calcoffsets();
 }
 
+int
+compare_distance(const void *a, const void *b)
+{
+    struct item *da = *(struct item **) a;
+    struct item *db = *(struct item **) b;
+
+    if (!db)
+        return 1;
+    if (!da)
+        return -1;
+
+    return da->distance - db->distance;
+}
+
+void
+fuzzymatch(void)
+{
+	/* bang - we have so much memory */
+	struct item *it;
+	struct item **fuzzymatches = NULL;
+	char c;
+	int number_of_matches = 0, i, pidx, sidx, eidx;
+	int text_len = strlen(text), itext_len;
+
+	matches = matchend = NULL;
+
+	/* walk through all items */
+	for (it = items; it && it->text; it++) {
+		if (text_len) {
+			itext_len = strlen(it->text);
+			pidx = 0;
+			sidx = eidx = -1;
+			/* walk through item text */
+			for (i = 0; i < itext_len && (c = it->text[i]); i++) {
+				/* fuzzy match pattern */
+				if (text[pidx] == c) {
+					if(sidx == -1)
+						sidx = i;
+					pidx++;
+					if (pidx == text_len) {
+						eidx = i;
+						break;
+					}
+				}
+			}
+			/* build list of matches */
+			if (eidx != -1) {
+				/* compute distance */
+				/* factor in 30% of sidx and distance between eidx and total
+				 * text length .. let's see how it works */
+				it->distance = eidx - sidx + (itext_len - eidx + sidx) / 3;
+				appenditem(it, &matches, &matchend);
+				number_of_matches++;
+			}
+		} else {
+			appenditem(it, &matches, &matchend);
+		}
+	}
+
+	if (number_of_matches) {
+		/* initialize array with matches */
+		if (!(fuzzymatches = realloc(fuzzymatches, number_of_matches * sizeof(struct item*))))
+			die("cannot realloc %u bytes:", number_of_matches * sizeof(struct item*));
+		for (i = 0, it = matches; it && i < number_of_matches; i++, it = it->right) {
+			fuzzymatches[i] = it;
+		}
+		/* sort matches according to distance */
+		qsort(fuzzymatches, number_of_matches, sizeof(struct item*), compare_distance);
+		/* rebuild list of matches */
+		matches = matchend = NULL;
+		for (i = 0, it = fuzzymatches[i];  i < number_of_matches && it && \
+				it->text; i++, it = fuzzymatches[i]) {
+			appenditem(it, &matches, &matchend);
+		}
+		free(fuzzymatches);
+	}
+	curr = sel = matches;
+	calcoffsets();
+}
+
 static void
 insert(const char *str, ssize_t n)
 {
@@ -263,7 +347,7 @@ insert(const char *str, ssize_t n)
 	if (n > 0)
 		memcpy(&text[cursor], str, n);
 	cursor += n;
-	match();
+	mymatch();
 }
 
 static size_t
@@ -308,7 +392,7 @@ keypress(XKeyEvent *ev)
 
 		case XK_k: /* delete right */
 			text[cursor] = '\0';
-			match();
+			mymatch();
 			break;
 		case XK_u: /* delete left */
 			insert(NULL, 0 - cursor);
@@ -444,7 +528,7 @@ keypress(XKeyEvent *ev)
 		strncpy(text, sel->text, sizeof text - 1);
 		text[sizeof text - 1] = '\0';
 		cursor = strlen(text);
-		match();
+		mymatch();
 		break;
 	}
 	drawmenu();
@@ -586,7 +670,7 @@ setup(void)
 	}
 	promptw = (prompt && *prompt) ? TEXTW(prompt) : 0;
 	inputw = MIN(inputw, mw/3);
-	match();
+	mymatch();
 
 	/* create menu window */
 	swa.override_redirect = True;
@@ -610,7 +694,7 @@ setup(void)
 static void
 usage(void)
 {
-	fputs("usage: dmenu [-b] [-f] [-i] [-l lines] [-p prompt] [-fn font] [-m monitor]\n"
+	fputs("usage: dmenu [-b] [-f] [-i] [-z] [-l lines] [-p prompt] [-fn font] [-m monitor]\n"
 	      "             [-nb color] [-nf color] [-sb color] [-sf color] [-v]\n", stderr);
 	exit(1);
 }
@@ -627,6 +711,8 @@ main(int argc, char *argv[])
 			exit(0);
 		} else if (!strcmp(argv[i], "-b")) /* appears at the bottom of the screen */
 			topbar = 0;
+		else if (!strcmp(argv[i], "-z"))
+			mymatch = fuzzymatch;
 		else if (!strcmp(argv[i], "-f"))   /* grabs keyboard before reading stdin */
 			fast = 1;
 		else if (!strcmp(argv[i], "-i")) { /* case-insensitive item matching */
