@@ -213,7 +213,7 @@ drw_rect(Drw *drw, int x, int y, unsigned int w, unsigned int h, int filled, int
 		return;
 	XSetForeground(drw->dpy, drw->gc, invert ? drw->scheme->bg->pix : drw->scheme->fg->pix);
 	if (filled)
-		XFillRectangle(drw->dpy, drw->drawable, drw->gc, x, y, w + 1, h + 1);
+		XFillRectangle(drw->dpy, drw->drawable, drw->gc, x, y, w + 1, h + 1); // cursor
 	else if (empty)
 		XDrawRectangle(drw->dpy, drw->drawable, drw->gc, x, y, w, h);
 }
@@ -244,7 +244,7 @@ drw_text(Drw *drw, int x, int y, unsigned int w, unsigned int h, const char *tex
 	} else {
 		XSetForeground(drw->dpy, drw->gc, invert ?
 		               drw->scheme->fg->pix : drw->scheme->bg->pix);
-		XFillRectangle(drw->dpy, drw->drawable, drw->gc, x, y, w, h);
+		XFillRectangle(drw->dpy, drw->drawable, drw->gc, x, y, w, h); // highlight line
 		d = XftDrawCreate(drw->dpy, drw->drawable,
 		                  DefaultVisual(drw->dpy, drw->screen),
 		                  DefaultColormap(drw->dpy, drw->screen));
@@ -291,7 +291,7 @@ drw_text(Drw *drw, int x, int y, unsigned int w, unsigned int h, const char *tex
 				if (render) {
 					th = curfont->ascent + curfont->descent;
 					ty = y + (h / 2) - (th / 2) + curfont->ascent;
-					tx = x + (h / 2);
+					tx = x + (h / 2); // column of text within dmenu window
 					XftDrawStringUtf8(d, invert ? &drw->scheme->bg->rgb : &drw->scheme->fg->rgb, curfont->xfont, tx, ty, (XftChar8 *)buf, len);
 				}
 				x += tex.w;

@@ -25,20 +25,19 @@
 #define TEXTNW(X,N)           (drw_font_getexts_width(drw->fonts[0], (X), (N)))
 #define TEXTW(X)              (drw_text(drw, 0, 0, 0, 0, (X), 0) + drw->fonts[0]->h)
 
-static void match(void);
-static void (*mymatch)(void) = match;
-
 /* enums */
 enum { SchemeNorm, SchemeSel, SchemeOut, SchemeLast }; /* color schemes */
 
 struct item {
 	char *text;
+	char *textLower;
 	struct item *left, *right;
 	int out;
 	int distance;
 };
 
 static char text[BUFSIZ] = "";
+static char textLower[BUFSIZ] = "";
 static int bh, mw, mh;
 static int sw, sh; /* X display screen geometry width, height */
 static int inputw, promptw;
@@ -58,6 +57,8 @@ static Drw *drw;
 
 #include "config.h"
 
+static void match(void);
+static void (*mymatch)(void) = match;
 static int (*fstrncmp)(const char *, const char *, size_t) = strncmp;
 static char *(*fstrstr)(const char *, const char *) = strstr;
 
@@ -260,15 +261,15 @@ match(void)
 int
 compare_distance(const void *a, const void *b)
 {
-    struct item *da = *(struct item **) a;
-    struct item *db = *(struct item **) b;
+	struct item *da = *(struct item **) a;
+	struct item *db = *(struct item **) b;
 
-    if (!db)
-        return 1;
-    if (!da)
-        return -1;
+	if (!db)
+		return 1;
+	if (!da)
+		return -1;
 
-    return da->distance - db->distance;
+	return da->distance - db->distance;
 }
 
 void
@@ -277,22 +278,23 @@ fuzzymatch(void)
 	/* bang - we have so much memory */
 	struct item *it;
 	struct item **fuzzymatches = NULL;
-	char c;
 	int number_of_matches = 0, i, pidx, sidx, eidx;
 	int text_len = strlen(text), itext_len;
+	char* inputText = caseInsensitive ? textLower : text;
 
 	matches = matchend = NULL;
 
 	/* walk through all items */
-	for (it = items; it && it->text; it++) {
+	for (it = items; it && it->text; ++it) {
 		if (text_len) {
 			itext_len = strlen(it->text);
+			char* itemText = caseInsensitive ? it->textLower : it->text;
 			pidx = 0;
 			sidx = eidx = -1;
 			/* walk through item text */
-			for (i = 0; i < itext_len && (c = it->text[i]); i++) {
+			for (i = 0; i < itext_len; ++i) {
 				/* fuzzy match pattern */
-				if (text[pidx] == c) {
+				if (inputText[pidx] == itemText[i]) {
 					if(sidx == -1)
 						sidx = i;
 					pidx++;
@@ -347,6 +349,33 @@ insert(const char *str, ssize_t n)
 	if (n > 0)
 		memcpy(&text[cursor], str, n);
 	cursor += n;
+
+	if (caseInsensitive || smartCase) {
+		strcpy(textLower, text);
+		int len = strlen(textLower), i;
+		for (i = 0; i < len; ++i)
+			textLower[i] = tolower(textLower[i]);
+	}
+
+	if (smartCase) {
+		int len = strlen(text), i;
+		caseInsensitive = True;
+		for (i = 0; i < len; ++i) {
+			if (!islower(text[i])) {
+				caseInsensitive = False;
+				break;
+			}
+		}
+		if (caseInsensitive) {
+			fstrncmp = strncasecmp;
+			fstrstr = cistrstr;
+		}
+		else {
+			fstrncmp = strncmp;
+			fstrstr = strstr;
+		}
+	}
+
 	mymatch();
 }
 
@@ -563,8 +592,17 @@ readstdin(void)
 				die("cannot realloc %u bytes:", size);
 		if ((p = strchr(buf, '\n')))
 			*p = '\0';
-		if (!(items[i].text = strdup(buf)))
+		if (!((items[i].text = strdup(buf)) && (items[i].textLower = strdup(buf))))
 			die("cannot strdup %u bytes:", strlen(buf) + 1);
+
+		// shit
+		if (caseInsensitive || smartCase) {
+			size_t j;
+			for (j = 0; j < strlen(buf); ++j) {
+				items[i].textLower[j] = tolower(items[i].textLower[j]);
+			}
+		}
+
 		items[i].out = 0;
 		if (strlen(items[i].text) > max)
 			max = strlen(maxstr = items[i].text);
@@ -657,9 +695,31 @@ setup(void)
 				if (INTERSECT(x, y, 1, 1, info[i]))
 					break;
 
-		x = info[i].x_org;
-		y = info[i].y_org + (topbar ? 0 : info[i].height - mh);
-		mw = info[i].width;
+		// height and width in pixels (aka resolution) of monitor to display dmenu on
+		// printf("height: %d\n", info[i].height);
+		// printf("width: %d\n", info[i].width);
+
+		// passed width, if any, with -w. 0 by default, aka whole screen
+		// if (width)
+			// printf("desired width: %d\n", width);
+		// coordinates of monitor to display on within entire X display
+		// printf("x_org: %d\n", info[i].x_org);
+		// printf("y_org: %d\n", info[i].y_org);
+
+		if (centerX && width != 0) {
+			x = info[i].x_org + ((info[i].width - width) / 2);
+			mw = width;
+		} else {
+			x = info[i].x_org;
+			mw = info[i].width;
+		}
+
+		if (centerY) {
+			y = info[i].y_org + ((info[i].height - mh) / 2);
+		} else {
+			y = info[i].y_org + (topbar ? 0 : info[i].height - mh);
+		}
+
 		XFree(info);
 	} else
 #endif
@@ -676,6 +736,9 @@ setup(void)
 	swa.override_redirect = True;
 	swa.background_pixel = scheme[SchemeNorm].bg->pix;
 	swa.event_mask = ExposureMask | KeyPressMask | VisibilityChangeMask;
+	// draw main dmenu window
+	// printf("%d, %d\n", drw->w, drw->h);
+	// printf("%d, %d, %d, %d", x, y, mw, mh);
 	win = XCreateWindow(dpy, root, x, y, mw, mh, 0,
 	                    DefaultDepth(dpy, screen), CopyFromParent,
 	                    DefaultVisual(dpy, screen),
@@ -694,7 +757,7 @@ setup(void)
 static void
 usage(void)
 {
-	fputs("usage: dmenu [-b] [-f] [-i] [-z] [-l lines] [-p prompt] [-fn font] [-m monitor]\n"
+	fputs("usage: dmenu [-b] [-f] [-i] [-s] [-z] [-l lines] [-p prompt] [-fn font] [-m monitor]\n"
 	      "             [-nb color] [-nf color] [-sb color] [-sf color] [-v]\n", stderr);
 	exit(1);
 }
@@ -711,11 +774,18 @@ main(int argc, char *argv[])
 			exit(0);
 		} else if (!strcmp(argv[i], "-b")) /* appears at the bottom of the screen */
 			topbar = 0;
+		else if (!strcmp(argv[i], "-centerx"))   /* grabs keyboard before reading stdin */
+			centerX = True;
+		else if (!strcmp(argv[i], "-centery"))   /* grabs keyboard before reading stdin */
+			centerY = True;
 		else if (!strcmp(argv[i], "-z"))
 			mymatch = fuzzymatch;
+		else if (!strcmp(argv[i], "-s"))
+			smartCase = True;
 		else if (!strcmp(argv[i], "-f"))   /* grabs keyboard before reading stdin */
 			fast = 1;
 		else if (!strcmp(argv[i], "-i")) { /* case-insensitive item matching */
+			caseInsensitive = True;
 			fstrncmp = strncasecmp;
 			fstrstr = cistrstr;
 		} else if (i + 1 == argc)
@@ -723,6 +793,8 @@ main(int argc, char *argv[])
 		/* these options take one argument */
 		else if (!strcmp(argv[i], "-l"))   /* number of lines in vertical list */
 			lines = atoi(argv[++i]);
+		else if (!strcmp(argv[i], "-w"))   /* width of dmenu window */
+			width = atoi(argv[++i]);
 		else if (!strcmp(argv[i], "-m"))
 			mon = atoi(argv[++i]);
 		else if (!strcmp(argv[i], "-p"))   /* adds prompt to left of input field */

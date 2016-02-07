@@ -15,6 +15,11 @@ static const char *outbgcolor  = "#00ffff";
 static const char *outfgcolor  = "#000000";
 /* -l option; if nonzero, dmenu uses vertical list with given number of lines */
 static unsigned int lines      = 0;
+static int width               = 0;
+static Bool caseInsensitive    = False;
+static Bool smartCase          = False;
+static Bool centerX            = False;
+static Bool centerY            = False;
 
 /*
  * Characters not considered part of a word while deleting words

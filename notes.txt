@@ -1,0 +1,16 @@
+fstrncmp {
+    strncasecmp = case insensitive string comparison
+    strncmp     = case sensitive string comparison
+}
+
+fstrstr {
+    strstr(haystack, needle) = find first occurrence of `needle` in `haystack`
+                               return pointer to string, or null if not found
+    cistrstr                 = case insensitive strstr
+}
+
+fstrchr { # not currently in dmenu.c off latest git
+    strchr(const char *str, int c) = find first occurrence of `c` in `str`
+                                     return pointer or null
+    strchri
+}

@@ -24,6 +24,11 @@ config.h:
 
 ${OBJ}: arg.h config.h config.mk drw.h
 
+debug: dmenu.o drw.o util.o
+	@echo DEBUG BUILD
+	@echo CC -o dmenu
+	@${CC} -o $@ dmenu.o drw.o util.o ${LIBS} -pg -g
+
 dmenu: dmenu.o drw.o util.o
 	@echo CC -o $@
 	@${CC} -o $@ dmenu.o drw.o util.o ${LDFLAGS}
